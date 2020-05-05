@@ -1,0 +1,144 @@
+%% Inpainting test:  Denoiser regularization + Trunctaed Framelet L1 regularization
+%%% \lambda1 Denoiser(x)  +  \lambda2 ||(Wx)T||_1 + 1/2 ||Ax - f||_2^2
+clear
+clc
+clf
+addpath('../')
+randn('seed',0); %  Fix random seed
+%% Data percentage
+Ratio_Set = [0.2, 0.3, 0.5, 0.8];
+for ImgNo = 3
+    for ratio_num = 4
+        switch ImgNo
+            case 1
+                OrgName = 'lena256.jpg'; 
+            case 2
+                OrgName = 'House256rgb.png';
+            case 3
+                OrgName = 'foreman.bmp';                 
+            case 4
+                OrgName = 'Butterfly.tif'; 
+            case 5
+                OrgName = 'leaves.tif';     
+        end
+    end
+end
+ratio = Ratio_Set(ratio_num); % ratio of available data, Options: [0.2, 0.3, 0.5, 0.8]
+x_rgb = imread(OrgName); % Original True Image
+[N,M,dim]=size(x_rgb);
+figure(1);imshow(x_rgb); title(sprintf('Original clean image'),'fontsize',13);    
+x_yuv = rgb2ycbcr(x_rgb);       
+x = double(x_yuv(:,:,1)); % Deal with Y Component
+x_org = x;
+x_inpaint_rgb = zeros(size(x_rgb));
+x_inpaint_yuv = zeros(size(x_yuv));
+x_inpaint_yuv(:,:,2) = x_yuv(:,:,2); % Copy U Componet
+x_inpaint_yuv(:,:,3) = x_yuv(:,:,3); % Copy V Componet
+        
+MaskType = 1; % 1 for random mask; 2 for text mask
+switch MaskType
+   case 1
+     rand('seed',0);
+     O = double(rand(size(x)) > (1-ratio));
+   case 2
+     O = imread('TextMask256.png'); %% 256 * 256
+%      O = imread('TextMask2.png'); %% 352 * 288
+     O = double(O>128);
+     O = O(:,:,1) ;
+end    
+% Generate Missing Image
+y_missing_rgb = zeros(size(x_rgb));
+y_missing_rgb(:,:,1) = uint8(double(x_rgb(:,:,1)).*O);
+y_missing_rgb(:,:,2) = uint8(double(x_rgb(:,:,2)).*O);
+y_missing_rgb(:,:,3) = uint8(double(x_rgb(:,:,3)).*O);
+        
+y= x.* O;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Considering the Case with Gaussian White Noise. When Noise_flag is zero, no noise is added.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+Noise_flag =  0  ; 
+if (Noise_flag)
+%      BSNR = 40;
+%      Py = var(x(:));
+%      sigma = sqrt((Py/10^(BSNR/10)));
+% Add noise
+     sigma = 5 ;
+     y = y + sigma*randn(N,M);
+end              
+psnr_inpainted = psnr(y/255,x/255) ;
+figure(2);imshow(uint8(y_missing_rgb)); title(sprintf('Missed image,PSNR: %4.2fdB',psnr_inpainted),'fontsize',13);
+
+%% GSR recovered results
+% load GSRlenaRatio20.mat ;       %% lena ;
+% load GSRlenaRatio30.mat ;
+% load GSRlenaRatio50.mat ;
+% load GSRlenaRatio80.mat ;
+% load GSRbarbaraRatio20.mat ;    %% barbara ;
+% load GSRbarbaraRatio30.mat ;
+% load GSRbarbaraRatio50.mat ;
+% load GSRbarbaraRatio80.mat ;
+% load GSRparrotsRatio20.mat ;      %% parrots ;
+% load GSRparrotsRatio30.mat ;
+% load GSRparrotsRatio50.mat ;
+% load GSRparrotsRatio80.mat ;
+% load GSRhouseRatio20.mat ;      %% house ;
+% load GSRhouseRatio30.mat ;
+% load GSRhouseRatio50.mat ;
+% load GSRhouseRatio80.mat ;
+% load GSRbutterflyRatio20.mat ;      %% butterfly ;
+% load GSRbutterflyRatio30.mat ;
+% load GSRbutterflyRatio50.mat ;
+% load GSRbutterflyRatio80.mat ;
+% load GSRforemanRatio20.mat ;      %% foreman ;
+% load GSRforemanRatio30.mat ;
+% load GSRforemanRatio50.mat ;
+% load GSRforemanRatio80.mat ;
+% load GSRleavesRatio20.mat ;      %% leaves ;
+% load GSRleavesRatio30.mat ;
+% load GSRleavesRatio50.mat ;
+% load GSRleavesRatio80.mat ;
+% load GSRpeppersRatio20.mat ;      %% leaves ;
+%% GSR recovered results
+% load GSRlenaTextmask.mat ;
+% load GSRhouseTextmask.mat ;
+% load GSRforemanTextmask.mat ;
+% load GSRmonarchTextmask.mat ;
+
+x_inpaint_yuv(:,:,1) = uint8(x_final);
+x_inpaint_rgb = ycbcr2rgb(uint8(x_inpaint_yuv));
+psnr_GSR = psnr(x_final/255,x/255) ; 
+fprintf('Initial PSNR: %4.2f \n', psnr_GSR);
+figure(3); imshow(uint8(x_inpaint_rgb)); 
+title(sprintf('GSR,PSNR: %4.2fdB',psnr_GSR),'fontsize',13) ;
+
+if max(x_final(:))> 5 %% 使用CSR结果作为初值; 并且将像素值范围调整到（0-255） ；
+    x_final = x_final ;
+else
+    disp([ 'There is a problem in the intensity range ' ]);
+end
+opts.Im0 = x_final ; %% 使用GSR恢复结果作为初始值 ;
+
+%% Main Function
+opts.lambda1 = 1.0 ; %% Denoiser Regularization parameter ;
+opts.mu1 = 0.005 ; %% Denoiser Penalty parameter ;
+opts.lambda2 = 0.1 ; %% Frame Regularization parameter ;
+opts.mu2 = 0.005 ; %% Frame Penalty parameter ;
+opts.frame = 1;
+opts.Level =  1  ;
+opts.rho = 300 ;  
+opts.maxit = 400  ; %% Maximum iteration number
+opts.tol = 1e-5;
+opts.Init= opts.Im0 ; 
+[x_final,b] = PnPADMM_FrameL1_Inpainting(y,O,x,opts);  
+Psnr = psnr(x_final/255,x/255) ;  
+
+%% Show the recovered image
+x_inpaint_yuv(:,:,1) = uint8(x_final);
+x_inpaint_rgb = ycbcr2rgb(uint8(x_inpaint_yuv)); 
+figure(4);
+imshow(uint8(x_inpaint_rgb)); title(sprintf('Proposed,PSNR: %4.2fdB',Psnr),'fontsize',13);
+
+
+
+
+
